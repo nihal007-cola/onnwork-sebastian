@@ -1,14 +1,16 @@
 {
   "name": "sebastian-bot",
   "version": "1.0.0",
+  "description": "Sebastian - AI WhatsApp Operator for ONNwork",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
     "axios": "^1.6.0",
-    "dotenv": "^16.0.0"
+    "dotenv": "^16.0.0",
+    "express": "^4.18.2",
+    "openai": "^4.0.0"
   }
 }
