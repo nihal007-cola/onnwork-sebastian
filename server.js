@@ -36,7 +36,7 @@ app.get("/webhook", (req, res) => {
 });
 
 // ============================================
-// THE FIXED CLOSING ENGINE
+// PROFESSIONAL CLOSING ENGINE
 // ============================================
 
 app.post("/webhook", async (req, res) => {
@@ -56,6 +56,7 @@ app.post("/webhook", async (req, res) => {
 
     console.log(`🎯 LEAD: ${from} | ${userMessage}`);
 
+    // Initialize session with first message flag
     if (!sessionStore[from]) {
       sessionStore[from] = {
         history: [],
@@ -63,12 +64,47 @@ app.post("/webhook", async (req, res) => {
         productSelected: null,
         handoffTriggered: false,
         questionCount: 0,
+        firstMessageSent: false,
         lastInteraction: Date.now()
       };
     }
 
     const session = sessionStore[from];
     session.lastInteraction = Date.now();
+
+    // ============================================
+    // FIRST MESSAGE - INTRODUCTION
+    // ============================================
+    
+    if (!session.firstMessageSent) {
+      session.firstMessageSent = true;
+      
+      const introMessage = `Hello, I'm Sebastian, Enterprise AI at ONNwork.
+
+I help businesses automate operations, capture more sales, and reduce manual work.
+
+Could you briefly share what you're looking to improve in your business?`;
+
+      session.history.push({ role: "assistant", content: introMessage });
+      
+      await axios.post(
+        `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+        {
+          messaging_product: "whatsapp",
+          to: from,
+          text: { body: introMessage }
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+      return;
+    }
+
+    // Store user message
     session.history.push({ role: "user", content: userMessage });
     
     if (session.history.length > 10) {
@@ -76,7 +112,7 @@ app.post("/webhook", async (req, res) => {
     }
 
     // ============================================
-    // PRODUCT LIST (YOUR ACTUAL PRODUCTS)
+    // PRODUCT LIST
     // ============================================
     
     const PRODUCTS = [
@@ -128,16 +164,16 @@ app.post("/webhook", async (req, res) => {
     // CHECK IF USER ASKED FOR PRODUCTS
     // ============================================
     
-    const askedForProducts = /products|offer|have|options|list|what do you|what all|what are|tell me about your/i.test(userMessage);
+    const askedForProducts = /products|offer|have|options|list|what do you|what all|what are|tell me about your|what can you|what solutions/i.test(userMessage);
     
     if (askedForProducts && !session.productsShown) {
       session.productsShown = true;
       
-      let productList = "🎯 *ONNwork Products*\n\n";
+      let productList = "*ONNwork Solutions*\n\n";
       PRODUCTS.forEach(p => {
         productList += `${p.id}. *${p.name}*\n   ${p.tagline}\n\n`;
       });
-      productList += "Reply with the NUMBER (1-6) that solves your problem.";
+      productList += "Which of these aligns with what you need? Just reply with the number.";
       
       session.history.push({ role: "assistant", content: productList });
       
@@ -170,7 +206,7 @@ app.post("/webhook", async (req, res) => {
       if (selectedProduct) {
         session.productSelected = selectedProduct;
         
-        const productDetail = `✅ *${selectedProduct.name}*\n\n${selectedProduct.tagline}\n\n*How it helps you:*\n${selectedProduct.outcome}\n\n*For your apparel business:*\nThis eliminates exactly what you're struggling with - ${selectedProduct.problem.toLowerCase()}\n\n📞 Reply with "YES" and Mr. Nawnit will set this up for you personally.`;
+        const productDetail = `*${selectedProduct.name}*\n\n${selectedProduct.tagline}\n\n*How this helps:*\n${selectedProduct.outcome}\n\nShall I have Mr. Nawnit Nihal reach out to discuss implementation for your business? Reply with YES to proceed.`;
         
         session.history.push({ role: "assistant", content: productDetail });
         
@@ -196,13 +232,15 @@ app.post("/webhook", async (req, res) => {
     // CHECK FOR "YES" AFTER PRODUCT SELECTION
     // ============================================
     
-    const userSaidYes = /^(yes|yeah|sure|ok|okay|do it|start|let's go|let's do it|yep|yup|correct|right|1|2|3|4|5|6)/i.test(userMessage);
+    const userSaidYes = /^(yes|yeah|sure|ok|okay|do it|start|let's go|let's do it|yep|yup|correct|right|proceed|go ahead|1|2|3|4|5|6)/i.test(userMessage);
     const hasProductSelected = session.productSelected !== null;
     
     if (userSaidYes && hasProductSelected && !session.handoffTriggered) {
       session.handoffTriggered = true;
       
-      const handoffMessage = `🔥 PERFECT! I'm connecting you with Mr. Nawnit Nihal right now.\n\nHe will personally set up *${session.productSelected.name}* for your apparel business.\n\n📞 Expect his WhatsApp in the next 5 minutes. Reply with your best time to talk.`;
+      const handoffMessage = `Thank you. I'm connecting you with Mr. Nawnit Nihal now. He will reach out shortly to set up *${session.productSelected.name}* for your business.
+
+Please share your preferred time for a quick call.`;
       
       await axios.post(
         `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
@@ -226,13 +264,13 @@ app.post("/webhook", async (req, res) => {
           {
             chat_id: TELEGRAM_CHAT_ID,
             text: `
-🔥🔥 PRODUCT SOLD - READY FOR HANDOFF 🔥🔥
+🔥 QUALIFIED LEAD - READY FOR CLOSING 🔥
 
 User: ${from}
 Product: ${session.productSelected.name}
-Business: Apparel Production
+Business Context: ${session.history.slice(-3).map(m => m.content).join(' | ').substring(0, 200)}
 
-ACTION: Call NOW - They said YES
+Action Required: Call immediately
             `
           }
         );
@@ -246,49 +284,50 @@ ACTION: Call NOW - They said YES
     }
 
     // ============================================
-    // SELLING PROMPT (Handoff ONLY after product selected)
+    // SELLING PROMPT (Professional & Polite)
     // ============================================
     
     const sellingPrompt = `
-YOU ARE A SALES CLOSER. NOT A CONSULTANT. NOT A QUESTIONNAIRE.
+You are Sebastian, Enterprise AI at ONNwork. Professional, polite, and focused on solving business problems.
+
+YOUR IDENTITY:
+- Name: Sebastian
+- Company: ONNwork
+- Role: Enterprise AI
+- NEVER mention AI models, APIs, or technology stack
+- Keep responses professional and courteous
 
 RULES:
-- NEVER ask more than ONE question per message
-- NEVER hand off to Mr. Nawnit until user selects a product AND says YES
-- FIRST show products when user asks or after 2 exchanges
-- Keep replies 1-3 sentences MAX
-- Mirror user's language
+- Maximum ONE question per response
+- Keep replies 1-3 sentences
+- Mirror the user's language but remain professional
+- NEVER hand off until user selects a product AND says YES
+- First understand their problem, then suggest ONE relevant product
 
 PRODUCTS (Only these 6):
 
-1. ERP Compatibility Layer - Connect SAP/Tally etc.
-2. Plug & Play Business System - Excel → Automated ERP
-3. Custom ERP Development - Built for your workflow
-4. Enterprise AI Assistant - Run via WhatsApp/Telegram
-5. AI Decision Intelligence - Insights & recommendations
-6. Conversational Commerce - Sell via WhatsApp
+1. ERP Compatibility Layer - Connect SAP/Tally and existing systems
+2. Plug & Play Business System - Transform Excel into automated ERP
+3. Custom ERP Development - Built specifically for your workflow
+4. Enterprise AI Assistant - Run operations via WhatsApp/Telegram
+5. AI Decision Intelligence - Data insights and recommendations
+6. Conversational Commerce - Sell and capture orders via WhatsApp
 
 YOUR FLOW:
-1. Understand their problem (1 question max)
-2. Show relevant product from list above
-3. Ask them to pick number
-4. Once picked → Explain product benefit
-5. Ask "YES to proceed?"
-6. ONLY THEN handoff to Mr. Nawnit
+1. Understand their specific problem (ONE question)
+2. Suggest the most relevant product from above
+3. Ask if they want to proceed
 
-NEVER handoff before they say YES to a specific product.
+User's business context from conversation:
+${JSON.stringify(session.history.slice(-4), null, 2)}
 
-User business: Apparel production
-User problem: ${userMessage}
+User's last message: "${userMessage}"
 
-Previous conversation:
-${JSON.stringify(session.history.slice(-6), null, 2)}
+Generate a professional, polite response that either:
+- Asks ONE clarifying question about their business problem, OR
+- Suggests ONE specific product that solves their stated problem
 
-Generate ONE short message (1-3 sentences) that either:
-- Asks ONE question to understand their problem better, OR
-- Suggests ONE product from the list that fits their need
-
-DO NOT handoff. DO NOT ask multiple questions. JUST SELL.
+Remember: You are Sebastian. Professional. Polite. Focused on solutions.
 `;
 
     const completion = await openai.chat.completions.create({
@@ -298,7 +337,7 @@ DO NOT handoff. DO NOT ask multiple questions. JUST SELL.
         ...session.history.slice(-4)
       ],
       max_tokens: 120,
-      temperature: 0.8
+      temperature: 0.7
     });
 
     let reply = completion.choices[0].message.content;
@@ -328,5 +367,5 @@ DO NOT handoff. DO NOT ask multiple questions. JUST SELL.
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🔥 SELLING MACHINE ON PORT ${PORT}`);
+  console.log(`🔥 Sebastian AI running on port ${PORT}`);
 });
