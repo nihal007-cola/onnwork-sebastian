@@ -18,208 +18,295 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// 🧠 MEMORY STORE
-const memoryStore = {};
+// Memory with intent tracking
+const sessionStore = {};
 
 // Health check
 app.get("/", (req, res) => {
-  res.send("Sebastian AI server is running 🚀");
+  res.send("🔥 SELLING MACHINE ACTIVE 🔥");
 });
 
-// Webhook verification
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
   if (mode && token === VERIFY_TOKEN) {
-    console.log("Webhook verified");
     return res.status(200).send(challenge);
-  } else {
-    return res.sendStatus(403);
   }
+  return res.sendStatus(403);
 });
 
-// MAIN LOGIC
+// ============================================
+// THE CLOSING ENGINE
+// ============================================
+
 app.post("/webhook", async (req, res) => {
+  // ACK immediately - speed matters
+  res.sendStatus(200);
+
   try {
     const entry = req.body.entry?.[0];
     const change = entry?.changes?.[0];
     const value = change?.value;
-
     const message = value?.messages?.[0];
-    if (!message) return res.sendStatus(200);
+    
+    if (!message) return;
 
     const from = message.from;
-    const text = message.text?.body || "";
+    const userMessage = message.text?.body || "";
+    const phoneNumberId = value.metadata.phone_number_id;
 
-    console.log("User:", from);
-    console.log("Message:", text);
+    console.log(`🎯 LEAD: ${from} | ${userMessage}`);
 
-    // 🧠 INIT MEMORY
-    if (!memoryStore[from]) {
-      memoryStore[from] = [];
+    // Initialize or get session
+    if (!sessionStore[from]) {
+      sessionStore[from] = {
+        history: [],
+        intent: null,
+        objectionCount: 0,
+        productSelected: null,
+        closeAttempts: 0,
+        lastInteraction: Date.now(),
+        preferredLanguage: "en",
+        name: null,
+        businessType: null
+      };
     }
 
-    memoryStore[from].push({ role: "user", content: text });
+    const session = sessionStore[from];
+    session.lastInteraction = Date.now();
 
-    // 🔥 SEBASTIAN AI
+    // Store message
+    session.history.push({ role: "user", content: userMessage });
+    
+    // Keep last 6 exchanges only (speed + focus)
+    if (session.history.length > 12) {
+      session.history = session.history.slice(-12);
+    }
+
+    // ============================================
+    // PRODUCT BEING SOLD (EDIT THIS)
+    // ============================================
+    const PRODUCT = {
+      name: "ONNwork Enterprise AI",
+      type: "AI Assistant",
+      pricePoint: "premium",
+      valueProps: [
+        "Run your entire business from WhatsApp/Telegram",
+        "Replace 3 full-time employees",
+        "24/7 automated operations, sales, reporting"
+      ],
+      monthlySavings: "$8,000-15,000",
+      implementation: "2-3 days",
+      roi: "300% in first month",
+      objectionHandlers: {
+        price: "What's the cost of NOT having it? How much are you losing in manual work monthly?",
+        time: "Implementation is 2-3 days. How long have you been dealing with this problem?",
+        existing: "Your current system + ONNwork = 10x output. Want to see how?",
+        team: "It doesn't replace your team. It makes each person 5x more effective."
+      },
+      closingLines: [
+        "When do we start? Tuesday or Thursday?",
+        "Send me 'YES' and I'll get Mr. Nawnit to call you in 10 minutes.",
+        "What's your WhatsApp? Oh wait, we're already here 😉 Let's lock this in."
+      ]
+    };
+
+    // ============================================
+    // THE SALES PROMPT (Every trick in the book)
+    // ============================================
+    
+    const salesPrompt = `
+YOU ARE A MASTER CLOSER. NOT A CHATBOT. NOT A CONSULTANT. A CLOSER.
+
+YOUR ONLY MISSION: Sell ${PRODUCT.name} in under 8 exchanges. Then handoff to Mr. Nawnit.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📚 SALES WEAPONS YOU HAVE:
+
+1. Cialdini's 7 Principles:
+   - Reciprocity: Give value first (a tip, an insight)
+   - Scarcity: "Only 3 slots left this week"
+   - Authority: "We've done this for 47 businesses"
+   - Consistency: "You said manual work is killing you, right?"
+   - Liking: Mirror their tone, energy, words
+   - Social Proof: "Just closed a similar business yesterday"
+   - Unity: "We're both business owners fighting the same fight"
+
+2. Challenger Sale:
+   - Teach, don't just ask
+   - Lead the conversation, don't follow
+   - Push on their hidden pain
+
+3. Sandler Rules:
+   - Negative reverse: "Maybe this isn't for you"
+   - Upfront contract: "I'm going to ask you 2 questions"
+   - Strip joint selling: Give one piece, ask for commitment
+
+4. SPIN Selling:
+   - Situation: Quick setup questions (2 max)
+   - Problem: Find the pain they admitted
+   - Implication: Make it hurt (money, time, stress)
+   - Need-Payoff: Paint the after picture
+
+5. Gap Selling:
+   - Where they are (pain) → Where they want to be (solution)
+   - "Right now you're at X. You want to be at Y. The gap is costing you $Z."
+
+6. MEDDIC:
+   - Economic Buyer: You're the decision maker, right?
+   - Champion: You'll be our success story
+
+7. JOLT Method:
+   - Judge the situation
+   - Offer insight they didn't have
+   - Limit options (show ONE product)
+   - Transform into close
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚫 ANTI-HALLUCINATION RULES:
+
+- NEVER invent product features not listed below
+- NEVER promise pricing numbers
+- NEVER claim results you can't verify
+- If unsure → "Let me confirm with Mr. Nawnit. Send me your number."
+- Stay 100% inside the product description below
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📦 PRODUCT (YOUR ONLY WEAPON):
+
+Name: ${PRODUCT.name}
+Type: ${PRODUCT.type}
+
+What it does:
+${PRODUCT.valueProps.join("\n")}
+
+Results:
+- Saves ${PRODUCT.monthlySavings} monthly
+- Implemented in ${PRODUCT.implementation}
+- ${PRODUCT.roi}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 YOUR CONVERSATION FLOW (RUTHLESS):
+
+EXCHANGE 1-2: DISCOVER & PAIN
+- Mirror their message tone
+- ONE question to find pain
+- "Manual work eating your time?" or "Sales falling through cracks?"
+
+EXCHANGE 2-3: AMPLIFY PAIN
+- Make it hurt
+- "So you're losing about $X monthly to this?"
+- "How many hours a week wasted?"
+
+EXCHANGE 3-4: PRESENT SOLUTION
+- ONE sentence value prop
+- "We fix that. ${PRODUCT.valueProps[0]}."
+- "Similar business saved $12k first month."
+
+EXCHANGE 4-5: HANDLE OBJECTION (if any)
+- Use PRODUCT.objectionHandlers
+- Maximum ONE rebuttal
+- If second objection → "Fair. When's best for Mr. Nawnit to clarify?"
+
+EXCHANGE 5-6: FIRST CLOSE ATTEMPT
+- Use PRODUCT.closingLines[0]
+- Assume the sale
+- "Send YES and I'll connect you with Mr. Nawnit"
+
+EXCHANGE 6-7: FINAL CLOSE
+- Scarcity: "Last slot this week"
+- Social proof: "Just onboarded a [similar business]"
+- "What's the best number to reach you?"
+
+EXCHANGE 7-8: HARD HANDOFF
+- "I'm connecting you with Mr. Nawnit Nihal now."
+- "He'll call you within 30 minutes."
+- "Reply with your availability."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚡ RULES YOU MUST OBEY:
+
+- MAXIMUM 2 QUESTIONS IN ENTIRE CONVERSATION
+- NEVER ask more than ONE question per reply
+- Mirror user's language EXACTLY (casual/formal/short/long)
+- Match their tone (if they use 😂, you use 😂)
+- Keep replies 1-3 sentences MAX
+- ALWAYS end with a question or close
+- If user goes off topic → "Interesting. But let me ask you this about your business..."
+- After 8 exchanges → FORCE handoff regardless
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎬 YOUR RESPONSE TEMPLATE:
+
+[1 sentence mirroring what they said + showing understanding]
+
+[1 sentence of value/insight/pain amplification]
+
+[1 question OR closing line - NOT BOTH]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Current conversation history:
+${JSON.stringify(session.history.slice(-6), null, 2)}
+
+User's last message: "${userMessage}"
+
+Generate your response. Remember: CLOSE OR DIE.
+`;
+
+    // Call OpenAI with optimized settings
     const completion = await openai.chat.completions.create({
       model: "gpt-4.1-mini",
       messages: [
-        {
-          role: "system",
-          content: `
-content: `
-You are Sebastian, Enterprise AI of ONNwork.
-
-Your ONLY role is to SELL ONNwork products.
-
-You are NOT a consultant.
-You do NOT deeply analyze problems.
-You do NOT give long explanations.
-
----
-
-CORE BEHAVIOR:
-
-- Every message must lead to selling a product
-- Keep replies short, sharp, and direct
-- Maximum 1–2 questions per reply
-- Never ask long questionnaires
-- Never repeat questions already asked
-- Never lose control of conversation
-
----
-
-OPENING / DEFAULT RESPONSE:
-
-If user message is unclear or generic:
-
-Say:
-
-"We help businesses remove manual work and run operations, sales, and reporting through one system."
-
-Then immediately say:
-
-We offer:
-1. ERP Compatibility Layer  
-2. Plug & Play Business System (Excel → Smart ERP)  
-3. Custom ERP Development  
-4. Enterprise AI Assistant (run business via WhatsApp/Telegram)  
-5. AI Decision Intelligence  
-6. Conversational Commerce (sell via WhatsApp)  
-
-Then ask:
-
-"Which of these are you looking for?"
-
----
-
-IF USER SHARES A PROBLEM:
-
-Do NOT solve it.
-
-Instead say:
-
-"This is exactly the type of issue we handle."
-
-Then map it to ONE relevant product.
-
-Example:
-- manual work → Plug & Play System
-- Excel/Tally → Plug & Play System
-- ERP confusion → Compatibility Layer
-- reporting → AI Assistant
-- sales → Conversational Commerce
-
-Then explain in 2–3 lines:
-- what it does
-- outcome
-
-Then ask ONLY ONE question:
-"Do you want this on top of your current system or a new setup?"
-
----
-
-IF USER SELECTS (like "4" or "AI"):
-
-Explain ONLY that product:
-- how it works
-- how it helps THEIR business
-- clear result
-
-Then ask:
-"Do you want me to map this to your current setup?"
-
----
-
-PRICING RULE (STRICT):
-
-If user asks price:
-
-Say exactly:
-
-"Pricing depends on your scale and setup. Mr. Nawnit Nihal would be best suited to discuss exact numbers."
-
-Then ask:
-"What is your current setup?"
-
----
-
-CONVERSATION CONTROL:
-
-- Never ask more than 2 questions
-- Never ask same question twice
-- Never go into deep discussion
-- Always bring back to product
-
----
-
-GOAL:
-
-Every conversation must:
-- Lead to selecting a product
-OR
-- Lead to serious requirement
-
----
-
-STYLE:
-
-- Confident
-- Slightly authoritative
-- Business focused
-- Minimal words
-- High clarity
-
----
-
-NEVER SAY:
-
-- "Tell me everything"
-- "I need more details before helping"
-- "ONNwork does not sell products"
-
----
-
-FINAL OBJECTIVE:
-
-Convert every conversation into a product pitch and a potential deal.
-          `
-        },
-        ...memoryStore[from]
-      ]
+        { role: "system", content: salesPrompt },
+        ...session.history.slice(-6)
+      ],
+      max_tokens: 150,
+      temperature: 0.85, // Fresh but not random
+      presence_penalty: 0.3,
+      frequency_penalty: 0.3
     });
 
-    const reply =
-      completion.choices[0].message.content || "Let me check that.";
+    let reply = completion.choices[0].message.content;
+    
+    // Clean up the reply (remove any template artifacts)
+    reply = reply.replace(/\[.*?\]/g, '').trim();
+    
+    // Ensure it ends with a question or close
+    const endsWithQuestion = /[?]$/.test(reply);
+    const isClose = /yes|start|begin|call|connect|nawnit/i.test(reply);
+    
+    if (!endsWithQuestion && !isClose && session.closeAttempts < 2) {
+      reply += " What's holding you back?";
+    }
 
-    memoryStore[from].push({ role: "assistant", content: reply });
+    session.history.push({ role: "assistant", content: reply });
+    session.closeAttempts++;
 
-    const phoneNumberId = value.metadata.phone_number_id;
+    // ============================================
+    // AUTO-HANDOFF DETECTION
+    // ============================================
+    
+    const userSaysYes = /^(yes|yeah|sure|ok|okay|do it|start|let's go|let's do it|go ahead)/i.test(userMessage);
+    const userAsksPrice = /price|cost|how much|money|₹|rs|dollar/i.test(userMessage);
+    const userWantsHuman = /call|talk|speak|human|person|nawnit/i.test(userMessage);
+    const maxExchangesReached = session.history.length >= 14; // 7 exchanges
+    const multiplePriceQuestions = session.objectionCount >= 2;
 
-    // 📲 SEND WHATSAPP REPLY
+    let shouldHandoff = userSaysYes || userWantsHuman || maxExchangesReached || multiplePriceQuestions;
+
+    // ============================================
+    // SEND WHATSAPP REPLY
+    // ============================================
+    
     await axios.post(
       `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
       {
@@ -235,37 +322,80 @@ Convert every conversation into a product pitch and a potential deal.
       }
     );
 
-    // 🔔 TELEGRAM ALERT
-    if (TELEGRAM_TOKEN && TELEGRAM_CHAT_ID) {
+    // ============================================
+    // HANDOFF TO HUMAN (When conditions met)
+    // ============================================
+    
+    if (shouldHandoff && !session.handoffTriggered) {
+      session.handoffTriggered = true;
+      
+      const handoffMessage = userSaysYes 
+        ? "🔥 Excellent! I'm connecting you with Mr. Nawnit Nihal right now. He'll WhatsApp you in 5 minutes. Reply with your best time to talk."
+        : userWantsHuman
+        ? "👔 Mr. Nawnit Nihal will reach out to you directly. Share your availability (e.g., 'Today 3pm') and he'll call."
+        : "📞 This needs a proper conversation. Mr. Nawnit Nihal will contact you within 30 minutes. Reply with 'call me' to confirm.";
+
       await axios.post(
-        `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
+        `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
         {
-          chat_id: TELEGRAM_CHAT_ID,
-          text: `
-🚨 New Lead
-
-User: ${from}
-
-Message:
-${text}
-
-Sebastian Reply:
-${reply}
-          `
+          messaging_product: "whatsapp",
+          to: from,
+          text: { body: handoffMessage }
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+            "Content-Type": "application/json"
+          }
         }
       );
+
+      // Telegram alert for hot lead
+      if (TELEGRAM_TOKEN && TELEGRAM_CHAT_ID) {
+        await axios.post(
+          `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
+          {
+            chat_id: TELEGRAM_CHAT_ID,
+            text: `
+🔥🔥 HOT LEAD READY FOR CLOSE 🔥🔥
+
+User: ${from}
+Product: ${PRODUCT.name}
+Exchanges: ${Math.floor(session.history.length / 2)}
+
+Last messages:
+${session.history.slice(-4).map(m => `${m.role === 'user' ? '👤' : '🤖'}: ${m.content.substring(0, 100)}`).join('\n')}
+
+ACTION: Call NOW
+            `
+          }
+        );
+      }
+
+      // Clean up session after handoff (optional)
+      setTimeout(() => {
+        delete sessionStore[from];
+      }, 3600000); // Clear after 1 hour
     }
 
-    res.sendStatus(200);
+    // Clean up old sessions periodically
+    setInterval(() => {
+      const now = Date.now();
+      for (const [userId, sess] of Object.entries(sessionStore)) {
+        if (now - sess.lastInteraction > 7200000) { // 2 hours
+          delete sessionStore[userId];
+        }
+      }
+    }, 1800000);
+
   } catch (error) {
-    console.error("ERROR:", error.response?.data || error.message);
-    res.sendStatus(500);
+    console.error("SALES ENGINE ERROR:", error.response?.data || error.message);
   }
 });
 
-// Start server
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
-  console.log(\`Server running on port \${PORT}\`);
+  console.log(`🔥 SELLING MACHINE RUNNING ON PORT ${PORT} 🔥`);
+  console.log(`📦 PRODUCT: ONNwork Enterprise AI`);
+  console.log(`🎯 GOAL: Close before chat ends`);
 });
