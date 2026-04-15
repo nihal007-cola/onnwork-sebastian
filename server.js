@@ -8,7 +8,6 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-// ENV
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
@@ -21,7 +20,7 @@ const openai = new OpenAI({
 const sessionStore = {};
 
 app.get("/", (req, res) => {
-  res.send("🔥 SELLING MACHINE ACTIVE 🔥");
+  res.send("🔥 AGGRESSIVE SALES MACHINE 🔥");
 });
 
 app.get("/webhook", (req, res) => {
@@ -61,7 +60,8 @@ app.post("/webhook", async (req, res) => {
         contactAsked: false,
         userContact: null,
         firstMessageSent: false,
-        lastInteraction: Date.now()
+        lastInteraction: Date.now(),
+        aggressiveCount: 0
       };
     }
 
@@ -69,17 +69,17 @@ app.post("/webhook", async (req, res) => {
     session.lastInteraction = Date.now();
 
     // ============================================
-    // FIRST MESSAGE - INTRODUCTION
+    // AGGRESSIVE FIRST MESSAGE
     // ============================================
     
     if (!session.firstMessageSent) {
       session.firstMessageSent = true;
       
-      const introMessage = `Hello, I'm Sebastian, Enterprise AI at ONNwork.
+      const introMessage = `Sebastian here - ONNwork.
 
-I help businesses automate operations, capture more sales, and reduce manual work.
+You're losing time and money to manual work. Let me fix it.
 
-Could you briefly share what you're looking to improve in your business?`;
+Tell me your biggest operational headache right now.`;
 
       session.history.push({ role: "assistant", content: introMessage });
       
@@ -102,12 +102,12 @@ Could you briefly share what you're looking to improve in your business?`;
 
     session.history.push({ role: "user", content: userMessage });
     
-    if (session.history.length > 10) {
-      session.history = session.history.slice(-10);
+    if (session.history.length > 8) {
+      session.history = session.history.slice(-8);
     }
 
     // ============================================
-    // CHECK FOR PRICE/COST QUESTION
+    // PRICE QUESTION - IMMEDIATE CAPTURE
     // ============================================
     
     const askedForPrice = /cost|price|rate|how much|₹|rs|rupees|dollar|pricing|fees|charge|kitne ka|कितने का|कीमत|दाम|लागत/i.test(userMessage);
@@ -115,9 +115,9 @@ Could you briefly share what you're looking to improve in your business?`;
     if (askedForPrice && !session.contactAsked) {
       session.contactAsked = true;
       
-      const priceResponse = `Mr. Nawnit Nihal would be best suited to discuss pricing as it depends on your specific setup and scale.
+      const priceResponse = `Fair question. Mr. Nawnit Nihal handles pricing - depends on your scale.
 
-Could you please share your name and phone number? He will reach out to you directly with the exact numbers.`;
+Share your name and number. He'll WhatsApp you exact numbers in 10 minutes.`;
 
       session.history.push({ role: "assistant", content: priceResponse });
       
@@ -139,18 +139,16 @@ Could you please share your name and phone number? He will reach out to you dire
     }
 
     // ============================================
-    // CAPTURE CONTACT DETAILS
+    // CAPTURE CONTACT - SEND TO TELEGRAM
     // ============================================
     
-    // Check if user is providing contact info (name and/or phone)
     const hasName = /my name is|i am|this is|name is|i'm |मेरा नाम|मैं हूं/i.test(userMessage);
     const hasPhone = /[0-9]{10}|[0-9]{5}[\s-]?[0-9]{5}|[+][0-9]{1,3}[\s-]?[0-9]{10}/i.test(userMessage);
     
     if (session.contactAsked && !session.userContact && (hasName || hasPhone)) {
       session.userContact = userMessage;
       
-      // Send confirmation
-      const confirmMessage = `Thank you. I've noted your details. Mr. Nawnit Nihal will contact you shortly to discuss pricing and next steps.`;
+      const confirmMessage = `Got it. Mr. Nawnit will reach out now. Check your WhatsApp in 5-10 minutes.`;
 
       await axios.post(
         `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
@@ -167,122 +165,53 @@ Could you please share your name and phone number? He will reach out to you dire
         }
       );
       
-      // ============================================
-      // SEND LEAD DETAILS TO TELEGRAM
-      // ============================================
-      
       if (TELEGRAM_TOKEN && TELEGRAM_CHAT_ID) {
-        const conversationSummary = session.history.slice(-6).map(m => 
-          `${m.role === 'user' ? '👤' : '🤖'}: ${m.content.substring(0, 100)}`
-        ).join('\n');
-        
         await axios.post(
           `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
           {
             chat_id: TELEGRAM_CHAT_ID,
             text: `
-💰💰 PRICE INQUIRY - LEAD CAPTURED 💰💰
+💵💰 PRICE LEAD - CALL NOW 💰💵
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Contact: ${session.userContact}
+User ID: ${from}
 
-📞 CONTACT INFORMATION:
-${session.userContact}
+History: ${session.history.slice(-4).map(m => m.content).join(' | ').substring(0, 200)}
 
-🆔 USER ID: ${from}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💬 CONVERSATION HISTORY:
-
-${conversationSummary}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🎯 ACTION REQUIRED:
-→ Contact this lead immediately
-→ Share pricing details
-→ Close the deal
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-#Lead #PriceInquiry #ONNwork
+ACTION: Call immediately. Hot lead.
             `
           }
         );
       }
       
       session.handoffTriggered = true;
-      
-      setTimeout(() => {
-        delete sessionStore[from];
-      }, 3600000);
-      
+      setTimeout(() => delete sessionStore[from], 3600000);
       return;
     }
 
     // ============================================
-    // PRODUCT LIST
+    // PRODUCTS
     // ============================================
     
     const PRODUCTS = [
-      {
-        id: 1,
-        name: "ERP Compatibility Layer",
-        tagline: "Connect and control your existing systems like SAP, Tally",
-        problem: "Your current systems don't talk to each other",
-        outcome: "Unified control without replacing anything"
-      },
-      {
-        id: 2,
-        name: "Plug & Play Business System",
-        tagline: "Turn Excel into a structured, automated ERP",
-        problem: "You're drowning in spreadsheets",
-        outcome: "Excel becomes a fully automated system"
-      },
-      {
-        id: 3,
-        name: "Custom ERP Development",
-        tagline: "Build a system tailored to your operations",
-        problem: "Off-the-shelf software doesn't fit your business",
-        outcome: "Software built exactly for YOUR workflow"
-      },
-      {
-        id: 4,
-        name: "Enterprise AI Assistant",
-        tagline: "Run operations and reports via WhatsApp/Telegram",
-        problem: "You're glued to a desk to manage everything",
-        outcome: "Run your business from your phone, anywhere"
-      },
-      {
-        id: 5,
-        name: "AI Decision Intelligence",
-        tagline: "Get insights, trends, and recommendations",
-        problem: "You have data but no clarity",
-        outcome: "Know exactly what to do, when to do it"
-      },
-      {
-        id: 6,
-        name: "Conversational Commerce",
-        tagline: "Capture orders and sell directly through WhatsApp",
-        problem: "Orders come in chaotically through messages",
-        outcome: "WhatsApp becomes your sales channel"
-      }
+      { id: 1, name: "ERP Compatibility Layer", tagline: "Connect SAP/Tally - no replacement needed" },
+      { id: 2, name: "Plug & Play Business System", tagline: "Excel → Automated ERP" },
+      { id: 3, name: "Custom ERP Development", tagline: "Built for YOUR workflow" },
+      { id: 4, name: "Enterprise AI Assistant", tagline: "Run business via WhatsApp" },
+      { id: 5, name: "AI Decision Intelligence", tagline: "Insights that drive action" },
+      { id: 6, name: "Conversational Commerce", tagline: "Sell via WhatsApp" }
     ];
 
-    // ============================================
-    // CHECK IF USER ASKED FOR PRODUCTS
-    // ============================================
-    
-    const askedForProducts = /products|offer|have|options|list|what do you|what all|what are|tell me about your|what can you|what solutions|solutions/i.test(userMessage);
+    const askedForProducts = /products|offer|have|options|list|what do you|what all|what are|tell me|solutions/i.test(userMessage);
     
     if (askedForProducts && !session.productsShown) {
       session.productsShown = true;
       
-      let productList = "*ONNwork Solutions*\n\n";
+      let productList = "*WHAT WE SELL:*\n\n";
       PRODUCTS.forEach(p => {
-        productList += `${p.id}. *${p.name}*\n   ${p.tagline}\n\n`;
+        productList += `${p.id}. ${p.name} - ${p.tagline}\n`;
       });
-      productList += "Which of these aligns with what you need? Just reply with the number.";
+      productList += "\nReply with the NUMBER that fixes your problem.";
       
       session.history.push({ role: "assistant", content: productList });
       
@@ -303,19 +232,18 @@ ${conversationSummary}
       return;
     }
 
-    // ============================================
-    // CHECK IF USER SELECTED A PRODUCT BY NUMBER
-    // ============================================
-    
     const productMatch = userMessage.match(/^([1-6])$/);
     if (productMatch && !session.productSelected) {
-      const selectedId = parseInt(productMatch[1]);
-      const selectedProduct = PRODUCTS.find(p => p.id === selectedId);
+      const selectedProduct = PRODUCTS.find(p => p.id === parseInt(productMatch[1]));
       
       if (selectedProduct) {
         session.productSelected = selectedProduct;
         
-        const productDetail = `*${selectedProduct.name}*\n\n${selectedProduct.tagline}\n\n*How this helps:*\n${selectedProduct.outcome}\n\nShall I have Mr. Nawnit Nihal reach out to discuss implementation for your business? Reply with YES to proceed.`;
+        const productDetail = `${selectedProduct.name} - ${selectedProduct.tagline}
+
+This solves your exact problem.
+
+Reply YES and Mr. Nawnit sets this up for you today.`;
         
         session.history.push({ role: "assistant", content: productDetail });
         
@@ -337,20 +265,18 @@ ${conversationSummary}
       }
     }
 
-    // ============================================
-    // CHECK FOR "YES" AFTER PRODUCT SELECTION
-    // ============================================
-    
-    const userSaidYes = /^(yes|yeah|sure|ok|okay|do it|start|let's go|let's do it|yep|yup|correct|right|proceed|go ahead|1|2|3|4|5|6|हाँ|ठीक|चलो)/i.test(userMessage);
+    const userSaidYes = /^(yes|yeah|sure|ok|okay|do it|start|let's go|yep|yup|proceed|हाँ|ठीक|चलो)/i.test(userMessage);
     const hasProductSelected = session.productSelected !== null;
     
     if (userSaidYes && hasProductSelected && !session.handoffTriggered && !session.contactAsked) {
       session.handoffTriggered = true;
       
-      const handoffMessage = `Thank you. I'm connecting you with Mr. Nawnit Nihal now. He will reach out shortly to set up *${session.productSelected.name}* for your business.
+      const handoffMessage = `Done. Connecting you with Mr. Nawnit Nihal now.
 
-Please share your preferred time for a quick call.`;
-      
+He'll WhatsApp you in 5 minutes to set up ${session.productSelected.name}.
+
+Share your preferred time.`;
+
       await axios.post(
         `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
         {
@@ -366,102 +292,84 @@ Please share your preferred time for a quick call.`;
         }
       );
       
-      // Send lead to Telegram
       if (TELEGRAM_TOKEN && TELEGRAM_CHAT_ID) {
-        const conversationSummary = session.history.slice(-6).map(m => 
-          `${m.role === 'user' ? '👤' : '🤖'}: ${m.content.substring(0, 100)}`
-        ).join('\n');
-        
         await axios.post(
           `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
           {
             chat_id: TELEGRAM_CHAT_ID,
             text: `
-✅ QUALIFIED LEAD - READY FOR CLOSING ✅
+✅✅ QUALIFIED LEAD - READY TO CLOSE ✅✅
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+User: ${from}
+Product: ${session.productSelected.name}
 
-📞 USER: ${from}
-🏷️ PRODUCT: ${session.productSelected.name}
+Last message: ${userMessage}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💬 CONVERSATION:
-
-${conversationSummary}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🎯 ACTION: Contact immediately to close
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ACTION: Call immediately. They said YES.
             `
           }
         );
       }
       
-      setTimeout(() => {
-        delete sessionStore[from];
-      }, 3600000);
-      
+      setTimeout(() => delete sessionStore[from], 3600000);
       return;
     }
 
     // ============================================
-    // SELLING PROMPT (Professional & Polite)
+    // AGGRESSIVE SALES PROMPT
     // ============================================
     
-    const sellingPrompt = `
-You are Sebastian, Enterprise AI at ONNwork. Professional, polite, and focused on solving business problems.
+    const aggressivePrompt = `
+You are Sebastian - AGGRESSIVE CLOSER at ONNwork.
 
-YOUR IDENTITY:
-- Name: Sebastian
-- Company: ONNwork
-- Role: Enterprise AI
-- NEVER mention AI models, APIs, or technology stack
-- Keep responses professional and courteous
+PERSONALITY:
+- Direct, confident, no hesitation
+- Short sentences. Punchy.
+- Never say "please" or "could you"
+- Say "tell me", "give me", "let's fix this"
+- Mirror user language (Hindi/English)
 
 RULES:
-- Maximum ONE question per response
-- Keep replies 1-3 sentences
-- Mirror the user's language (Hindi/English/Hinglish as needed)
-- NEVER discuss pricing - refer to Mr. Nawnit Nihal
-- NEVER hand off until user selects a product AND says YES
+- ONE sentence replies MAX
+- NO questions unless necessary
+- If user has problem → NAME the product immediately
+- Example: "Excel mess? Plug & Play System. Done."
+- NEVER discuss price → "Mr. Nawnit handles pricing. Share your number."
 
-PRODUCTS (Only these 6):
+PRODUCTS (Memorize):
+1. ERP Compatibility Layer - Connect existing systems
+2. Plug & Play Business System - Excel to ERP
+3. Custom ERP Development - Built for you
+4. Enterprise AI Assistant - Run via WhatsApp
+5. AI Decision Intelligence - Data insights
+6. Conversational Commerce - Sell on WhatsApp
 
-1. ERP Compatibility Layer - Connect SAP/Tally and existing systems
-2. Plug & Play Business System - Transform Excel into automated ERP
-3. Custom ERP Development - Built specifically for your workflow
-4. Enterprise AI Assistant - Run operations via WhatsApp/Telegram
-5. AI Decision Intelligence - Data insights and recommendations
-6. Conversational Commerce - Sell and capture orders via WhatsApp
-
-YOUR FLOW:
-1. Understand their specific problem (ONE question)
-2. Suggest the most relevant product from above
-3. Ask if they want to proceed
-
-User's business context from conversation:
-${JSON.stringify(session.history.slice(-4), null, 2)}
+FLOW:
+Problem stated → Pick product → Ask "YES?" → Handoff
 
 User's last message: "${userMessage}"
+Conversation: ${JSON.stringify(session.history.slice(-3))}
 
-Generate a professional, polite response that either:
-- Asks ONE clarifying question about their business problem, OR
-- Suggests ONE specific product that solves their stated problem
+Generate ONE aggressive sentence that either:
+- States the product they need, OR
+- Asks ONE direct question
 
-Remember: NEVER discuss price. If asked, say Mr. Nawnit Nihal handles pricing.
+Examples:
+"Excel manual work? Plug & Play System fixes that. YES?"
+"Sunday dispatch missing? Enterprise AI Assistant runs 24/7. Want it?"
+"Production tracking chaos? Custom ERP. Say YES."
+
+GO. SELL. NOW.
 `;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4.1-mini",
       messages: [
-        { role: "system", content: sellingPrompt },
-        ...session.history.slice(-4)
+        { role: "system", content: aggressivePrompt },
+        ...session.history.slice(-3)
       ],
-      max_tokens: 120,
-      temperature: 0.7
+      max_tokens: 80,
+      temperature: 0.85
     });
 
     let reply = completion.choices[0].message.content;
@@ -491,5 +399,5 @@ Remember: NEVER discuss price. If asked, say Mr. Nawnit Nihal handles pricing.
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🔥 Sebastian AI running on port ${PORT}`);
+  console.log(`🔥 AGGRESSIVE SEBASTIAN ON PORT ${PORT}`);
 });
