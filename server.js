@@ -35,10 +35,6 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-// ============================================
-// PROFESSIONAL CLOSING ENGINE
-// ============================================
-
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 
@@ -56,14 +52,14 @@ app.post("/webhook", async (req, res) => {
 
     console.log(`🎯 LEAD: ${from} | ${userMessage}`);
 
-    // Initialize session with first message flag
     if (!sessionStore[from]) {
       sessionStore[from] = {
         history: [],
         productsShown: false,
         productSelected: null,
         handoffTriggered: false,
-        questionCount: 0,
+        contactAsked: false,
+        userContact: null,
         firstMessageSent: false,
         lastInteraction: Date.now()
       };
@@ -104,11 +100,124 @@ Could you briefly share what you're looking to improve in your business?`;
       return;
     }
 
-    // Store user message
     session.history.push({ role: "user", content: userMessage });
     
     if (session.history.length > 10) {
       session.history = session.history.slice(-10);
+    }
+
+    // ============================================
+    // CHECK FOR PRICE/COST QUESTION
+    // ============================================
+    
+    const askedForPrice = /cost|price|rate|how much|₹|rs|rupees|dollar|pricing|fees|charge|kitne ka|कितने का|कीमत|दाम|लागत/i.test(userMessage);
+    
+    if (askedForPrice && !session.contactAsked) {
+      session.contactAsked = true;
+      
+      const priceResponse = `Mr. Nawnit Nihal would be best suited to discuss pricing as it depends on your specific setup and scale.
+
+Could you please share your name and phone number? He will reach out to you directly with the exact numbers.`;
+
+      session.history.push({ role: "assistant", content: priceResponse });
+      
+      await axios.post(
+        `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+        {
+          messaging_product: "whatsapp",
+          to: from,
+          text: { body: priceResponse }
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+      return;
+    }
+
+    // ============================================
+    // CAPTURE CONTACT DETAILS
+    // ============================================
+    
+    // Check if user is providing contact info (name and/or phone)
+    const hasName = /my name is|i am|this is|name is|i'm |मेरा नाम|मैं हूं/i.test(userMessage);
+    const hasPhone = /[0-9]{10}|[0-9]{5}[\s-]?[0-9]{5}|[+][0-9]{1,3}[\s-]?[0-9]{10}/i.test(userMessage);
+    
+    if (session.contactAsked && !session.userContact && (hasName || hasPhone)) {
+      session.userContact = userMessage;
+      
+      // Send confirmation
+      const confirmMessage = `Thank you. I've noted your details. Mr. Nawnit Nihal will contact you shortly to discuss pricing and next steps.`;
+
+      await axios.post(
+        `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+        {
+          messaging_product: "whatsapp",
+          to: from,
+          text: { body: confirmMessage }
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+      
+      // ============================================
+      // SEND LEAD DETAILS TO TELEGRAM
+      // ============================================
+      
+      if (TELEGRAM_TOKEN && TELEGRAM_CHAT_ID) {
+        const conversationSummary = session.history.slice(-6).map(m => 
+          `${m.role === 'user' ? '👤' : '🤖'}: ${m.content.substring(0, 100)}`
+        ).join('\n');
+        
+        await axios.post(
+          `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
+          {
+            chat_id: TELEGRAM_CHAT_ID,
+            text: `
+💰💰 PRICE INQUIRY - LEAD CAPTURED 💰💰
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📞 CONTACT INFORMATION:
+${session.userContact}
+
+🆔 USER ID: ${from}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💬 CONVERSATION HISTORY:
+
+${conversationSummary}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 ACTION REQUIRED:
+→ Contact this lead immediately
+→ Share pricing details
+→ Close the deal
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#Lead #PriceInquiry #ONNwork
+            `
+          }
+        );
+      }
+      
+      session.handoffTriggered = true;
+      
+      setTimeout(() => {
+        delete sessionStore[from];
+      }, 3600000);
+      
+      return;
     }
 
     // ============================================
@@ -164,7 +273,7 @@ Could you briefly share what you're looking to improve in your business?`;
     // CHECK IF USER ASKED FOR PRODUCTS
     // ============================================
     
-    const askedForProducts = /products|offer|have|options|list|what do you|what all|what are|tell me about your|what can you|what solutions/i.test(userMessage);
+    const askedForProducts = /products|offer|have|options|list|what do you|what all|what are|tell me about your|what can you|what solutions|solutions/i.test(userMessage);
     
     if (askedForProducts && !session.productsShown) {
       session.productsShown = true;
@@ -232,10 +341,10 @@ Could you briefly share what you're looking to improve in your business?`;
     // CHECK FOR "YES" AFTER PRODUCT SELECTION
     // ============================================
     
-    const userSaidYes = /^(yes|yeah|sure|ok|okay|do it|start|let's go|let's do it|yep|yup|correct|right|proceed|go ahead|1|2|3|4|5|6)/i.test(userMessage);
+    const userSaidYes = /^(yes|yeah|sure|ok|okay|do it|start|let's go|let's do it|yep|yup|correct|right|proceed|go ahead|1|2|3|4|5|6|हाँ|ठीक|चलो)/i.test(userMessage);
     const hasProductSelected = session.productSelected !== null;
     
-    if (userSaidYes && hasProductSelected && !session.handoffTriggered) {
+    if (userSaidYes && hasProductSelected && !session.handoffTriggered && !session.contactAsked) {
       session.handoffTriggered = true;
       
       const handoffMessage = `Thank you. I'm connecting you with Mr. Nawnit Nihal now. He will reach out shortly to set up *${session.productSelected.name}* for your business.
@@ -257,20 +366,35 @@ Please share your preferred time for a quick call.`;
         }
       );
       
-      // Telegram alert
+      // Send lead to Telegram
       if (TELEGRAM_TOKEN && TELEGRAM_CHAT_ID) {
+        const conversationSummary = session.history.slice(-6).map(m => 
+          `${m.role === 'user' ? '👤' : '🤖'}: ${m.content.substring(0, 100)}`
+        ).join('\n');
+        
         await axios.post(
           `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
           {
             chat_id: TELEGRAM_CHAT_ID,
             text: `
-🔥 QUALIFIED LEAD - READY FOR CLOSING 🔥
+✅ QUALIFIED LEAD - READY FOR CLOSING ✅
 
-User: ${from}
-Product: ${session.productSelected.name}
-Business Context: ${session.history.slice(-3).map(m => m.content).join(' | ').substring(0, 200)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Action Required: Call immediately
+📞 USER: ${from}
+🏷️ PRODUCT: ${session.productSelected.name}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💬 CONVERSATION:
+
+${conversationSummary}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 ACTION: Contact immediately to close
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             `
           }
         );
@@ -300,9 +424,9 @@ YOUR IDENTITY:
 RULES:
 - Maximum ONE question per response
 - Keep replies 1-3 sentences
-- Mirror the user's language but remain professional
+- Mirror the user's language (Hindi/English/Hinglish as needed)
+- NEVER discuss pricing - refer to Mr. Nawnit Nihal
 - NEVER hand off until user selects a product AND says YES
-- First understand their problem, then suggest ONE relevant product
 
 PRODUCTS (Only these 6):
 
@@ -327,7 +451,7 @@ Generate a professional, polite response that either:
 - Asks ONE clarifying question about their business problem, OR
 - Suggests ONE specific product that solves their stated problem
 
-Remember: You are Sebastian. Professional. Polite. Focused on solutions.
+Remember: NEVER discuss price. If asked, say Mr. Nawnit Nihal handles pricing.
 `;
 
     const completion = await openai.chat.completions.create({
