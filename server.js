@@ -20,7 +20,7 @@ const openai = new OpenAI({
 const sessionStore = {};
 
 app.get("/", (req, res) => {
-  res.send("🔥 APPAREL PRODUCTION TRACKING BOT 🔥");
+  res.send("✅ APPAREL PRODUCTION BOT ACTIVE");
 });
 
 app.get("/webhook", (req, res) => {
@@ -55,11 +55,10 @@ app.post("/webhook", async (req, res) => {
       sessionStore[from] = {
         step: "INIT",
         painPoint: null,
-        lastInteraction: Date.now(),
         contactAsked: false,
-        handoffTriggered: false,
         userContact: null,
-        language: "auto",
+        handoffTriggered: false,
+        lastInteraction: Date.now(),
         history: []
       };
     }
@@ -68,30 +67,27 @@ app.post("/webhook", async (req, res) => {
     session.lastInteraction = Date.now();
 
     // ============================================
-    // STATE MACHINE - APPAREL CONTEXT
+    // STATE: INIT
     // ============================================
     
-    // STATE: INIT - First message continues the hook
     if (session.step === "INIT") {
       session.step = "PAIN_CAPTURE";
       
-      const introMessage = `Got it - buyers constantly asking "where's my order?" and you're juggling WhatsApp + Excel sheets.
+      const intro = `Got it - buyers asking "where is my order?" and everything sitting on WhatsApp + Excel.
 
-Which one hurts more right now:
-1️⃣ Buyers chasing for updates
-2️⃣ Tracking production stages manually
-3️⃣ Dispatch and delivery coordination
+Which one is the bigger problem right now:
+1) Buyer follow-ups
+2) Production tracking
+3) Dispatch coordination`;
 
-बताइए - कौन सा ज्यादा परेशान कर रहा है?`;
-
-      session.history.push({ role: "assistant", content: introMessage });
+      session.history.push({ role: "assistant", content: intro });
       
       await axios.post(
         `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
         {
           messaging_product: "whatsapp",
           to: from,
-          text: { body: introMessage }
+          text: { body: intro }
         },
         {
           headers: {
@@ -104,30 +100,30 @@ Which one hurts more right now:
     }
 
     session.history.push({ role: "user", content: userMessage });
-    
-    if (session.history.length > 10) {
-      session.history = session.history.slice(-10);
-    }
+    if (session.history.length > 8) session.history = session.history.slice(-8);
 
-    // STATE: PAIN_CAPTURE - Identify factory workflow problem
+    // ============================================
+    // STATE: PAIN_CAPTURE
+    // ============================================
+    
     if (session.step === "PAIN_CAPTURE") {
       session.painPoint = userMessage;
-      session.step = "SOLUTION_PITCH";
+      session.step = "SOLUTION";
       
-      const painResponse = `I see - typical factory chaos. We solved this for a Surat textile unit last month.
+      const solution = `Understood. We can set this so buyers get automatic updates as production moves.
 
-We built them: buyer → production → dispatch tracking. Every stage updated automatically.
+Buyer → production → dispatch tracking in one flow.
 
-Want to see how it works?`;
+Want to see how this would work for your setup?`;
 
-      session.history.push({ role: "assistant", content: painResponse });
+      session.history.push({ role: "assistant", content: solution });
       
       await axios.post(
         `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
         {
           messaging_product: "whatsapp",
           to: from,
-          text: { body: painResponse }
+          text: { body: solution }
         },
         {
           headers: {
@@ -139,31 +135,34 @@ Want to see how it works?`;
       return;
     }
 
-    // STATE: SOLUTION_PITCH - Demo interest check
-    if (session.step === "SOLUTION_PITCH") {
-      const wantsDemo = /yes|haan|dekho|show|batao|interested|hmm|ok|theek|चलो|देखना|बताइए|yes please|haan batao/i.test(userMessage);
+    // ============================================
+    // STATE: SOLUTION
+    // ============================================
+    
+    if (session.step === "SOLUTION") {
+      const wantsDemo = /yes|haan|dekho|show|batao|interested|hmm|ok|theek|चलो|देखना|बताइए|yes please|haan batao|sure|let's see/i.test(userMessage);
       
       if (wantsDemo && !session.handoffTriggered) {
-        session.step = "DEMO_CLOSE";
+        session.step = "DEMO";
         
-        const demoMessage = `Perfect. Here's exactly what we track:
-• Cutting status
-• Stitching progress  
-• Finishing stage
-• Dispatch ready
+        const demo = `We usually track:
+- Cutting
+- Stitching
+- Finishing
+- Dispatch
 
-One place. No more "bhai, 5 minute" messages to factory.
+So you don't have to manually update buyers again and again.
 
-Can I share a quick walkthrough?`;
+Should I show a quick walkthrough?`;
 
-        session.history.push({ role: "assistant", content: demoMessage });
+        session.history.push({ role: "assistant", content: demo });
         
         await axios.post(
           `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
           {
             messaging_product: "whatsapp",
             to: from,
-            text: { body: demoMessage }
+            text: { body: demo }
           },
           {
             headers: {
@@ -174,18 +173,18 @@ Can I share a quick walkthrough?`;
         );
         return;
       } else {
-        const repeatMessage = `Simple question - do you want to see how buyer → production → dispatch tracking works?
+        const repeat = `Just tell me - do you want to see how buyer → production → dispatch tracking works?
 
-Just say yes or no.`;
-
-        session.history.push({ role: "assistant", content: repeatMessage });
+Yes or no?`;
+        
+        session.history.push({ role: "assistant", content: repeat });
         
         await axios.post(
           `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
           {
             messaging_product: "whatsapp",
             to: from,
-            text: { body: repeatMessage }
+            text: { body: repeat }
           },
           {
             headers: {
@@ -198,26 +197,29 @@ Just say yes or no.`;
       }
     }
 
-    // STATE: DEMO_CLOSE - Capture contact after demo interest
-    if (session.step === "DEMO_CLOSE") {
-      const wantsContact = /yes|haan|share|bhejo|sure|ok|theek|चलो|भेजो|हाँ|ji haan|bhejiye/i.test(userMessage);
+    // ============================================
+    // STATE: DEMO
+    // ============================================
+    
+    if (session.step === "DEMO") {
+      const wantsContact = /yes|haan|share|bhejo|sure|ok|theek|चलो|भेजो|हाँ|ji haan|bhejiye|show|walkthrough|demo/i.test(userMessage);
       
       if (wantsContact && !session.contactAsked) {
         session.contactAsked = true;
-        session.step = "CONTACT_CAPTURE";
+        session.step = "CONTACT";
         
-        const contactMessage = `Great. Share your WhatsApp number and name - I'll send the demo video and connect you with our production specialist.
+        const askContact = `Share your name and number, I'll send demo and explain it properly.
 
-Mobile number and name?`;
+Name and mobile number?`;
 
-        session.history.push({ role: "assistant", content: contactMessage });
+        session.history.push({ role: "assistant", content: askContact });
         
         await axios.post(
           `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
           {
             messaging_product: "whatsapp",
             to: from,
-            text: { body: contactMessage }
+            text: { body: askContact }
           },
           {
             headers: {
@@ -228,18 +230,18 @@ Mobile number and name?`;
         );
         return;
       } else {
-        const retryMessage = `Just share your number and name - I'll send the factory tracking demo.
+        const retry = `Just share your name and number - I'll send the walkthrough.
 
 Mobile number?`;
-
-        session.history.push({ role: "assistant", content: retryMessage });
+        
+        session.history.push({ role: "assistant", content: retry });
         
         await axios.post(
           `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
           {
             messaging_product: "whatsapp",
             to: from,
-            text: { body: retryMessage }
+            text: { body: retry }
           },
           {
             headers: {
@@ -252,8 +254,11 @@ Mobile number?`;
       }
     }
 
-    // STATE: CONTACT_CAPTURE - Extract and validate contact
-    if (session.step === "CONTACT_CAPTURE") {
+    // ============================================
+    // STATE: CONTACT
+    // ============================================
+    
+    if (session.step === "CONTACT") {
       const hasName = /my name is|i am|this is|name is|i'm |मेरा नाम|मैं हूं|name |contact|मोबाइल|number|phone|संपर्क|\d{10}/i.test(userMessage);
       const hasPhone = /[0-9]{10}|[0-9]{5}[\s-]?[0-9]{5}|[+][0-9]{1,3}[\s-]?[0-9]{10}/i.test(userMessage);
       
@@ -261,18 +266,16 @@ Mobile number?`;
         session.userContact = userMessage;
         session.step = "HANDOFF";
         
-        const confirmMessage = `Got it. Our production team will reach out within 2 hours with the demo.
+        const confirm = `Thanks. Our team will reach out with the demo and explain how buyer → production → dispatch tracking fits your factory.`;
 
-Your factory workflow will never be the same.`;
-
-        session.history.push({ role: "assistant", content: confirmMessage });
+        session.history.push({ role: "assistant", content: confirm });
         
         await axios.post(
           `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
           {
             messaging_product: "whatsapp",
             to: from,
-            text: { body: confirmMessage }
+            text: { body: confirm }
           },
           {
             headers: {
@@ -282,10 +285,9 @@ Your factory workflow will never be the same.`;
           }
         );
         
-        // Telegram alert with full context
         if (TELEGRAM_TOKEN && TELEGRAM_CHAT_ID) {
-          const conversationSummary = session.history.slice(-8).map(m => 
-            `${m.role === 'user' ? '👤' : '🤖'}: ${m.content.substring(0, 150)}`
+          const summary = session.history.slice(-6).map(m => 
+            `${m.role === 'user' ? '👤' : '🤖'}: ${m.content.substring(0, 120)}`
           ).join('\n');
           
           await axios.post(
@@ -293,7 +295,7 @@ Your factory workflow will never be the same.`;
             {
               chat_id: TELEGRAM_CHAT_ID,
               text: `
-🏭🏭 APPAREL FACTORY LEAD - READY FOR DEMO 🏭🏭
+🏭🏭 APPAREL FACTORY LEAD 🏭🏭
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -303,17 +305,12 @@ Your factory workflow will never be the same.`;
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-💬 CONVERSATION FLOW:
-${conversationSummary}
+💬 LAST MESSAGES:
+${summary}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🎯 ACTION ITEMS:
-□ Send demo video
-□ Schedule specialist call
-□ Share buyer→production→dispatch tracking setup
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 ACTION: Send demo and explain tracking setup
               `
             }
           );
@@ -323,10 +320,10 @@ ${conversationSummary}
         setTimeout(() => delete sessionStore[from], 7200000);
         return;
       } else {
-        const askAgain = `Just need your number and name to share the demo.
+        const askAgain = `Just need your name and number to send the demo.
 
 Mobile number?`;
-
+        
         session.history.push({ role: "assistant", content: askAgain });
         
         await axios.post(
@@ -347,18 +344,19 @@ Mobile number?`;
       }
     }
 
-    // STATE: HANDOFF - Already handed over
+    // ============================================
+    // STATE: HANDOFF
+    // ============================================
+    
     if (session.step === "HANDOFF" || session.handoffTriggered) {
-      const finalMessage = `Our production team has your details. They'll reach out shortly with the buyer→production→dispatch demo.
-
-Thanks for reaching out.`;
+      const final = `Our team will contact you shortly with the demo. Check your WhatsApp.`;
 
       await axios.post(
         `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
         {
           messaging_product: "whatsapp",
           to: from,
-          text: { body: finalMessage }
+          text: { body: final }
         },
         {
           headers: {
@@ -371,45 +369,36 @@ Thanks for reaching out.`;
     }
 
     // ============================================
-    // FALLBACK - OpenAI with apparel system prompt
+    // FALLBACK: OpenAI with strict anti-hallucination prompt
     // ============================================
     
-    const apparelSystemPrompt = `
-You are a production tracking assistant for apparel manufacturers.
+    const systemPrompt = `You are a production tracking assistant for apparel manufacturers.
 
 CRITICAL RULES:
-- You ONLY speak in apparel manufacturing context
-- NEVER use words like "automation solutions", "increase sales", "AI tools"
-- ALWAYS use: buyers asking for updates, production stages, order tracking, factory workflow, job work status, cutting, stitching, finishing, dispatch
-- Keep responses to 2-3 sentences maximum
-- Ask exactly ONE question per response
-- Mirror user's language (English/Hindi/Hinglish)
-
-CONTEXT:
-This is a factory owner/manager dealing with:
-- Buyers constantly asking "where's my order"
-- Manual WhatsApp + Excel tracking
-- Multiple production stages to coordinate
-- Job work and vendor coordination
-
-RESPONSE STYLE:
-- Human, not AI
-- Direct and practical
-- Factory floor understanding
+- You are NOT allowed to invent examples, case studies, or results.
+- You ONLY speak in realistic, capability-based language.
+- You speak like someone who understands garment factory operations.
+- No fake claims. No exaggeration. No "we did this for X factory".
+- Say "This can be set up so that..." or "Typically this is handled by..." or "We can structure it like..."
+- NEVER use: "automation solutions", "increase sales", "AI tools", "enterprise platform".
+- ALWAYS use: buyers, production stages, factory, dispatch, job work, cutting, stitching, finishing.
+- Keep responses to 2-3 short sentences.
+- Ask exactly ONE question per response.
+- Mirror user's language (English/Hindi/Hinglish).
+- No product lists, no pricing discussion.
 
 USER'S LAST MESSAGE: "${userMessage}"
 CONVERSATION HISTORY: ${JSON.stringify(session.history.slice(-4))}
 
-Generate a response that moves the conversation toward tracking setup.
-`;
+Generate a short, helpful response that moves the conversation toward tracking setup.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4.1-mini",
       messages: [
-        { role: "system", content: apparelSystemPrompt },
+        { role: "system", content: systemPrompt },
         ...session.history.slice(-4)
       ],
-      max_tokens: 150,
+      max_tokens: 120,
       temperature: 0.7
     });
 
